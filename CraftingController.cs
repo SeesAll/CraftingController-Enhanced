@@ -157,7 +157,6 @@ namespace Oxide.Plugins
                 Unsubscribe(nameof(CanCraft));
                 Unsubscribe(nameof(OnItemCraft));
                 Unsubscribe(nameof(OnItemCraftFinished));
-                Unsubscribe(nameof(OnItemCraftCancelled));
             }
 
             foreach (var item in ItemManager.bpList)
@@ -932,7 +931,30 @@ namespace Oxide.Plugins
 
         private void OnItemCraftCancelled(ItemCraftTask task, ItemCrafter crafter)
         {
-            if (crafter?.owner != null) ClearPendingSkin(crafter.owner, task);
+            BasePlayer player = crafter?.owner;
+            if (player == null || task == null) return;
+
+            ClearPendingSkin(player, task);
+            if (task.takenItems == null || task.takenItems.Count == 0) return;
+            ItemDefinition target = task.blueprint?.targetItem;
+
+            // Oxide invokes this hook before Rust's cancellation refund. Rust
+            // only tries containerMain and drops an item when that move fails,
+            // which loses ingredients from a full inventory or belt stack.
+            // Restore them through the same main/belt/overstack-safe path used
+            // by rejected crafts, then clear the list so vanilla does not
+            // process the same items a second time.
+            foreach (Item item in task.takenItems)
+            {
+                if (item == null) continue;
+
+                if (target != null && item.IsBlueprint() && item.blueprintTargetDef == target)
+                    item.UseItem(task.numCrafted);
+
+                if (item.amount > 0)
+                    GiveOrDrop(player, item);
+            }
+            task.takenItems.Clear();
         }
 
         private void OnPlayerDisconnected(BasePlayer player)

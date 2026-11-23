@@ -3,6 +3,16 @@
 Audit date: 2026-11-23  
 Enhanced release: 3.4.2
 
+## Cancellation observation resolved in 3.4.2
+
+Cancelling a queued gunpowder craft with a full inventory caused Rust to drop
+the held sulfur. Rust's cancellation path tries only the main container before
+dropping a refund; it does not try the belt or reconstruct a pre-existing
+overstack. Oxide calls `OnItemCraftCancelled` before that refund loop. Version
+3.4.2 restores the held items through the plugin's main/belt/overstack-safe
+path and clears the list so vanilla cannot refund or drop them again. Temporary
+blueprints retain Rust's crafted-use accounting before they are returned.
+
 ## Second TEST observation resolved in 3.4.2
 
 The next live test exposed a flaw in partial bulk trimming. The pre-collection

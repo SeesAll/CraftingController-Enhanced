@@ -10,6 +10,9 @@
   the slots reserved for its output and make completed items drop.
 - Use the same all-or-nothing rule in the post-collection safety check for
   temporary-blueprint crafts and inventory changes caused by another hook.
+- Restore manually cancelled craft ingredients through main inventory, belt,
+  and pre-existing overstack reconstruction before Rust's main-only refund can
+  drop them. This protection remains active in Simple Mode.
 - Removed the now-obsolete partial ingredient-refund path.
 
 ## 3.4.1 - 2026-11-23
