@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Crafting Controller", "Whispers88 & SeesAll", "3.4.2")]
+    [Info("Crafting Controller", "Whispers88, modified by SeesAll", "3.4.2")]
     [Description("Allows you to modify the time spend crafting and which items can be crafted")]
 
     //Credits to previous authors Nivex & Mughisi
