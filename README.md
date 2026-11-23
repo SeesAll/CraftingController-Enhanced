@@ -1,7 +1,7 @@
 # CraftingController Enhanced
 
 A maintained, configuration-compatible fork of Whispers88's uMod/Oxide
-Crafting Controller for Rust. Version 3.4.1 restores compatibility with the
+Crafting Controller for Rust. Version 3.4.2 restores compatibility with the
 current Rust server and fixes several inventory, shutdown, reload, and
 configuration-safety defects while retaining the established commands,
 permissions, and JSON property names.

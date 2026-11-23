@@ -1,7 +1,22 @@
 # CraftingController 3.3.7 audit
 
 Audit date: 2026-11-23  
-Enhanced release: 3.4.1
+Enhanced release: 3.4.2
+
+## Second TEST observation resolved in 3.4.2
+
+The next live test exposed a flaw in partial bulk trimming. The pre-collection
+check admitted a request when at least one batch could fit. After Rust removed
+ingredients for the complete request, the post-collection check shortened the
+task and returned the rejected batches' ingredients. A two-pipe refund then
+occupied the output slot that the capacity calculation had reserved, so the
+accepted rockets completed onto the ground.
+
+3.4.2 makes the capacity decision all-or-nothing. Before Rust mutates the
+inventory, the projected post-collection space must hold every output item in
+the requested task. Otherwise the request is rejected with all ingredients
+untouched. The post-collection fallback applies the same rule rather than
+returning a partial refund into output space.
 
 ## TEST observation resolved in 3.4.1
 
@@ -10,11 +25,11 @@ recipe-sized split from an admin-created stack of 100 pipes before
 `OnItemCraft`, then the no-space rejection could not merge that split under the
 active stack limits and dropped it on the ground.
 
-3.4.1 uses uMod's pre-collection `CanCraft` hook when no complete recipe batch
-will fit. The check projects Rust's own ingredient collection without mutating
-items, so it includes slots that the recipe will genuinely free and does not
-reject merely because the inventory starts full. Partial-fit requests continue
-to the post-collection whole-batch trimming introduced in 3.4.0.
+3.4.1 introduced uMod's pre-collection `CanCraft` hook. The check projects
+Rust's own ingredient collection without mutating items, so it includes slots
+that the recipe will genuinely free and does not reject merely because the
+inventory starts full. Version 3.4.2 strengthens the decision to require room
+for the complete requested craft rather than admitting a partial fit.
 
 The refund fallback was also hardened. It first attempts normal main/belt stack
 merging. If an overstack cannot be reconstructed under the current normal
@@ -51,18 +66,18 @@ Two writes to the removed `ItemCraftTask.cancelled` member prevented the entire
 plugin from loading. They were removed after verifying the hook injection and
 both ownership paths.
 
-### High: partial bulk crafting was not transactional
+### High: partial bulk crafting was not transactional (finalized in 3.4.2)
 
 The old code repeatedly scaled collected ingredient stacks by a fraction, up to
 20 passes, before rounding the output back to recipe batches. It could reject a
 craft that actually fit, return incorrect material quantities, or recreate
 refund items without their original metadata.
 
-The new path first computes the number of complete recipe batches that fit. It
-then refunds exactly `(ingredient units per batch × rejected batches)`, using
-Rust's stack split operation so condition and instance metadata are retained. If
-any ingredient cannot be reconciled, the whole remaining task is rejected and
-all still-held ingredients are returned or dropped safely.
+Version 3.4.0 first replaced the fractional loop with whole-batch trimming and
+exact stack splits. Live testing showed that even an exact partial refund can
+consume a slot reserved for output. Version 3.4.2 closes the issue by requiring
+the complete requested output to fit before ingredient collection; otherwise
+the request is rejected without moving any items.
 
 ### High: shutdown could discard a multi-craft remainder
 

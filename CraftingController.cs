@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Crafting Controller", "Whispers88 & SeesAll", "3.4.1")]
+    [Info("Crafting Controller", "Whispers88 & SeesAll", "3.4.2")]
     [Description("Allows you to modify the time spend crafting and which items can be crafted")]
 
     //Credits to previous authors Nivex & Mughisi
@@ -834,7 +834,13 @@ namespace Oxide.Plugins
             if (!TryGetSpaceAfterCollecting(crafter, blueprint, amount, free, out projectedSpace))
                 return null;
 
-            if (projectedSpace >= amountPerCraft) return null;
+            // Rust collects ingredients for the entire requested task before
+            // OnItemCraft runs. Approving only the batches that currently fit
+            // would require returning the other ingredients afterward, and
+            // those refunds can occupy the slots reserved for crafted output.
+            // Require room for the complete request while the inventory is
+            // still untouched instead.
+            if (projectedSpace >= amount * amountPerCraft) return null;
 
             BasePlayer player = crafter.owner;
             if (player.IsConnected)
@@ -853,24 +859,10 @@ namespace Oxide.Plugins
             if (!config.FullInventory)
             {
                 int space = FreeSpace(player, target);
-                int amountPerCraft = task.blueprint.amountToCreate;
-                int craftBatches = amountPerCraft > 0 ? Mathf.Min(task.amount, space / amountPerCraft) : 0;
-                if (craftBatches < 1)
+                if (space < tocraft)
                 {
                     ReturnCraft(task, player);
                     return true;
-                }
-
-                if (craftBatches < task.amount)
-                {
-                    int rejectedBatches = task.amount - craftBatches;
-                    if (!RefundIngredients(task, player, rejectedBatches))
-                    {
-                        ReturnCraft(task, player);
-                        return true;
-                    }
-                    task.amount = craftBatches;
-                    tocraft = craftBatches * amountPerCraft;
                 }
             }
 
@@ -1000,43 +992,6 @@ namespace Oxide.Plugins
                     GiveOrDrop(crafter, item);
             }
             task.takenItems.Clear();
-        }
-
-        private bool RefundIngredients(ItemCraftTask task, BasePlayer player, int rejectedBatches)
-        {
-            if (task.takenItems == null) return rejectedBatches == 0;
-
-            foreach (ItemAmount ingredient in task.blueprint.GetIngredients())
-            {
-                int refundRemaining = (int)ingredient.amount * rejectedBatches;
-                for (int i = task.takenItems.Count - 1; i >= 0 && refundRemaining > 0; i--)
-                {
-                    Item taken = task.takenItems[i];
-                    if (taken == null || !taken.info.MatchesItemId(ingredient.itemid, true)) continue;
-
-                    if (taken.amount <= refundRemaining)
-                    {
-                        task.takenItems.RemoveAt(i);
-                        refundRemaining -= taken.amount;
-                        GiveOrDrop(player, taken);
-                    }
-                    else
-                    {
-                        Item refund = taken.SplitItem(refundRemaining);
-                        if (refund == null) return false;
-                        refundRemaining = 0;
-                        GiveOrDrop(player, refund);
-                    }
-                }
-
-                if (refundRemaining > 0)
-                {
-                    PrintError($"Unable to safely trim craft task {task.taskUID}; cancelling the remaining craft instead.");
-                    return false;
-                }
-            }
-
-            return true;
         }
 
         private static void GiveOrDrop(BasePlayer player, Item item)

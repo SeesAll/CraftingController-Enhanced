@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.4.2 - 2026-11-23
+
+### Fixed
+
+- Require enough projected capacity for the complete requested craft before
+  Rust collects any ingredients. A request is now rejected intact instead of
+  being shortened after collection, where refunded ingredients could consume
+  the slots reserved for its output and make completed items drop.
+- Use the same all-or-nothing rule in the post-collection safety check for
+  temporary-blueprint crafts and inventory changes caused by another hook.
+- Removed the now-obsolete partial ingredient-refund path.
+
 ## 3.4.1 - 2026-11-23
 
 ### Fixed
