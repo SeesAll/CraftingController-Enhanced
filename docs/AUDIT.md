@@ -167,7 +167,7 @@ owns that lifecycle.
 - Confirmed no remaining `ItemCraftTask.cancelled` references or single-use
   private helper dead code.
 - Uploaded only `CraftingController.cs` to the TEST server and confirmed that
-  its live Oxide plugin list reports Crafting Controller 3.4.0 by Whispers88 &
+  its live Oxide plugin list reports Crafting Controller 3.4.1 by Whispers88 &
   SeesAll. The TEST JSON configuration was not replaced.
 
 Interactive TEST-server crafting checks are still required before production
