@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Crafting Controller", "Whispers88 & SeesAll", "3.4.0")]
+    [Info("Crafting Controller", "Whispers88 & SeesAll", "3.4.1")]
     [Description("Allows you to modify the time spend crafting and which items can be crafted")]
 
     //Credits to previous authors Nivex & Mughisi
@@ -154,6 +154,7 @@ namespace Oxide.Plugins
 
             if (config.SimpleMode)
             {
+                Unsubscribe(nameof(CanCraft));
                 Unsubscribe(nameof(OnItemCraft));
                 Unsubscribe(nameof(OnItemCraftFinished));
                 Unsubscribe(nameof(OnItemCraftCancelled));
@@ -820,6 +821,27 @@ namespace Oxide.Plugins
 
         private readonly Dictionary<ulong, Dictionary<int, ulong>> skinupdate = new Dictionary<ulong, Dictionary<int, ulong>>();
 
+        private object CanCraft(ItemCrafter crafter, ItemBlueprint blueprint, int amount, bool free)
+        {
+            if (config.FullInventory || crafter?.owner == null || blueprint?.targetItem == null ||
+                amount < 1 || amount > blueprint.targetItem.craftingStackable)
+                return null;
+
+            int amountPerCraft = blueprint.amountToCreate;
+            if (amountPerCraft < 1) return null;
+
+            int projectedSpace;
+            if (!TryGetSpaceAfterCollecting(crafter, blueprint, amount, free, out projectedSpace))
+                return null;
+
+            if (projectedSpace >= amountPerCraft) return null;
+
+            BasePlayer player = crafter.owner;
+            if (player.IsConnected)
+                SendReply(player, GetLang("NoInvSpace", player.UserIDString));
+            return false;
+        }
+
         private object OnItemCraft(ItemCraftTask task, BasePlayer player, Item fromTempBlueprint)
         {
             if (player == null || task == null || task.blueprint == null || task.amount <= 0) return null;
@@ -1020,8 +1042,21 @@ namespace Oxide.Plugins
         private static void GiveOrDrop(BasePlayer player, Item item)
         {
             if (item == null || item.amount <= 0) return;
-            if (!player.inventory.GiveItem(item))
-                item.Drop(player.inventory.containerMain.dropPosition, player.inventory.containerMain.dropVelocity);
+
+            PlayerInventory inventory = player.inventory;
+            if (item.MoveToContainer(inventory.containerMain) ||
+                item.MoveToContainer(inventory.containerBelt) ||
+                inventory.GiveItem(item))
+                return;
+
+            // Admin and stack-size plugins can leave the original source stack
+            // above its current normal maximum. A rejected craft must be able to
+            // reconstruct that pre-craft stack before falling back to a drop.
+            if (item.MoveToContainer(inventory.containerMain, -1, true, true, player) ||
+                item.MoveToContainer(inventory.containerBelt, -1, true, true, player))
+                return;
+
+            item.Drop(inventory.containerMain.dropPosition, inventory.containerMain.dropVelocity);
         }
 
         private ItemDefinition FindItem(string itemNameOrId)
@@ -1037,6 +1072,11 @@ namespace Oxide.Plugins
         }
 
         private int FreeSpace(BasePlayer player, ItemDefinition item)
+        {
+            return FreeSpace(player, item, null);
+        }
+
+        private int FreeSpace(BasePlayer player, ItemDefinition item, Dictionary<Item, int> projectedAmounts)
         {
             var slots = player.inventory.containerMain.capacity + player.inventory.containerBelt.capacity;
             List<Item> containeritems = Pool.Get<List<Item>>();
@@ -1060,11 +1100,22 @@ namespace Oxide.Plugins
             int queuestacks = 0;
             foreach (var i in queueamts)
             {
-                queuestacks += StackCount(i.Key, i.Value - Stackroom(containeritems, i.Key.shortname));
+                queuestacks += StackCount(i.Key, i.Value - Stackroom(containeritems, i.Key, projectedAmounts));
             }
 
-            int invstackroom = (slots - containeritems.Count - queuestacks) * Mathf.Max(1, item.stackable);
-            containeritems.ForEach(x => { if (x.info == item && x.amount < x.MaxStackable()) invstackroom += x.MaxStackable() - x.amount; });
+            int occupiedSlots = 0;
+            int invstackroom = 0;
+            foreach (Item inventoryItem in containeritems)
+            {
+                int inventoryAmount = GetProjectedAmount(inventoryItem, projectedAmounts);
+                if (inventoryAmount <= 0) continue;
+
+                occupiedSlots++;
+                if (inventoryItem.info == item && inventoryAmount < inventoryItem.MaxStackable())
+                    invstackroom += inventoryItem.MaxStackable() - inventoryAmount;
+            }
+
+            invstackroom += (slots - occupiedSlots - queuestacks) * Mathf.Max(1, item.stackable);
             foreach (var x in player.inventory.crafting.queue)
             {
                 if (x.blueprint.targetItem.shortname == item.shortname)
@@ -1077,11 +1128,98 @@ namespace Oxide.Plugins
             return invstackroom;
         }
 
-        private int Stackroom(List<Item> items, string item)
+        private static int GetProjectedAmount(Item item, Dictionary<Item, int> projectedAmounts)
+        {
+            int amount;
+            return projectedAmounts != null && projectedAmounts.TryGetValue(item, out amount) ? amount : item.amount;
+        }
+
+        private static int Stackroom(List<Item> items, ItemDefinition item, Dictionary<Item, int> projectedAmounts)
         {
             int stackroom = 0;
-            items.ForEach(x => { if (x.info.shortname == item && x.amount < x.MaxStackable()) stackroom += x.MaxStackable() - x.amount; });
+            foreach (Item inventoryItem in items)
+            {
+                int inventoryAmount = GetProjectedAmount(inventoryItem, projectedAmounts);
+                if (inventoryItem.info == item && inventoryAmount > 0 && inventoryAmount < inventoryItem.MaxStackable())
+                    stackroom += inventoryItem.MaxStackable() - inventoryAmount;
+            }
             return stackroom;
+        }
+
+        private bool TryGetSpaceAfterCollecting(ItemCrafter crafter, ItemBlueprint blueprint, int amount, bool free, out int space)
+        {
+            BasePlayer player = crafter.owner;
+            Dictionary<Item, int> projectedAmounts = Pool.Get<Dictionary<Item, int>>();
+
+            try
+            {
+                foreach (ItemContainer container in crafter.containers)
+                {
+                    foreach (Item inventoryItem in container.itemList)
+                    {
+                        // CanCraft does not receive the temporary-blueprint item
+                        // that CraftItem removes later. Defer to the post-collection
+                        // check rather than falsely rejecting that special path.
+                        if (inventoryItem.IsBlueprint())
+                        {
+                            space = 0;
+                            return false;
+                        }
+
+                        projectedAmounts[inventoryItem] = inventoryItem.amount;
+                    }
+                }
+
+                if (!free)
+                {
+                    foreach (ItemAmount ingredient in blueprint.GetIngredients())
+                    {
+                        int required = (int)ingredient.amount * amount;
+
+                        foreach (ItemContainer container in crafter.containers)
+                        {
+                            for (int pass = 0; pass < 2 && required > 0; pass++)
+                            {
+                                bool redirected = pass == 1;
+                                foreach (Item inventoryItem in container.itemList)
+                                {
+                                    int remaining;
+                                    if (!projectedAmounts.TryGetValue(inventoryItem, out remaining) || remaining <= 0)
+                                        continue;
+
+                                    bool exactItem = inventoryItem.info.itemid == ingredient.itemid;
+                                    if ((!redirected && !exactItem) || (redirected && exactItem) ||
+                                        !inventoryItem.info.MatchesItemId(ingredient.itemid, true) ||
+                                        (inventoryItem.info.condition.enabled && inventoryItem.condition <= 0f))
+                                        continue;
+
+                                    int collected = Mathf.Min(remaining, required);
+                                    projectedAmounts[inventoryItem] = remaining - collected;
+                                    required -= collected;
+                                    if (required <= 0) break;
+                                }
+                            }
+
+                            if (required <= 0) break;
+                        }
+
+                        // Let Rust report missing or unusable ingredients rather
+                        // than replacing that reason with an inventory-space error.
+                        if (required > 0)
+                        {
+                            space = 0;
+                            return false;
+                        }
+                    }
+                }
+
+                space = FreeSpace(player, blueprint.targetItem, projectedAmounts);
+                return true;
+            }
+            finally
+            {
+                Pool.FreeUnmanaged(ref projectedAmounts);
+            }
         }
 
         private static int StackCount(ItemDefinition item, int amount)

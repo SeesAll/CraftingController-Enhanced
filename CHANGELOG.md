@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.4.1 - 2026-11-23
+
+### Fixed
+
+- Added a pre-collection capacity check so a craft with no room for even one
+  complete recipe batch is rejected before Rust removes its ingredients.
+- Made that check simulate Rust's ingredient collection order, including slots
+  freed by fully consumed stacks, redirectable ingredients, unusable broken
+  items, queued output reservations, and target-item stack room.
+- Strengthened rejected-craft refunds to merge into main or belt containers
+  before dropping. If an admin-created or plugin-controlled overstack cannot be
+  restored under the current normal limit, the refund may reconstruct that
+  pre-craft overstack rather than discarding the split on the ground.
+- Kept temporary-blueprint crafts on the post-collection safety path because
+  the `CanCraft` hook does not identify the blueprint item that will be removed.
+
 ## 3.4.0 - 2026-11-23
 
 ### Fixed

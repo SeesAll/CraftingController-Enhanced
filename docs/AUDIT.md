@@ -1,7 +1,27 @@
 # CraftingController 3.3.7 audit
 
 Audit date: 2026-11-23  
-Enhanced release: 3.4.0
+Enhanced release: 3.4.1
+
+## TEST observation resolved in 3.4.1
+
+The first live inventory test exposed a remaining edge case: Rust collected a
+recipe-sized split from an admin-created stack of 100 pipes before
+`OnItemCraft`, then the no-space rejection could not merge that split under the
+active stack limits and dropped it on the ground.
+
+3.4.1 uses uMod's pre-collection `CanCraft` hook when no complete recipe batch
+will fit. The check projects Rust's own ingredient collection without mutating
+items, so it includes slots that the recipe will genuinely free and does not
+reject merely because the inventory starts full. Partial-fit requests continue
+to the post-collection whole-batch trimming introduced in 3.4.0.
+
+The refund fallback was also hardened. It first attempts normal main/belt stack
+merging. If an overstack cannot be reconstructed under the current normal
+limit, it retries with Rust's `ignoreStackLimit` move specifically to restore
+the pre-craft state before considering a ground drop. Temporary-blueprint
+crafts remain on the post-collection path because `CanCraft` does not receive
+the blueprint item that Rust removes later.
 
 ## Scope and evidence
 
