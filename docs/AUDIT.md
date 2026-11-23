@@ -146,7 +146,10 @@ owns that lifecycle.
   migration is required.
 - Confirmed no remaining `ItemCraftTask.cancelled` references or single-use
   private helper dead code.
+- Uploaded only `CraftingController.cs` to the TEST server and confirmed that
+  its live Oxide plugin list reports Crafting Controller 3.4.0 by Whispers88 &
+  SeesAll. The TEST JSON configuration was not replaced.
 
-An in-process TEST-server smoke test is still required before production rollout
-because compilation cannot simulate inventory networking, third-party hook
-ordering, or wipe-specific item definitions.
+Interactive TEST-server crafting checks are still required before production
+rollout because a successful live compile/load cannot validate inventory
+networking, third-party hook ordering, or wipe-specific item behavior.
